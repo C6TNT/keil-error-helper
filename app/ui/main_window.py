@@ -18,12 +18,34 @@ from PySide6.QtWidgets import (
 )
 
 try:
-    from core.ai_client import AIClientError, ai_is_configured, run_ai_analysis
-    from core.config_store import DEFAULT_BASE_URL, DEFAULT_MODEL, load_ai_config, mask_api_key, save_ai_config
+    from core.ai_client import (
+        AIClientError,
+        ai_is_configured,
+        run_ai_analysis,
+        test_ai_connection,
+    )
+    from core.config_store import (
+        DEFAULT_BASE_URL,
+        DEFAULT_MODEL,
+        load_ai_config,
+        mask_api_key,
+        save_ai_config,
+    )
     from core.engine import analyze_text
 except ModuleNotFoundError:
-    from ..core.ai_client import AIClientError, ai_is_configured, run_ai_analysis
-    from ..core.config_store import DEFAULT_BASE_URL, DEFAULT_MODEL, load_ai_config, mask_api_key, save_ai_config
+    from ..core.ai_client import (
+        AIClientError,
+        ai_is_configured,
+        run_ai_analysis,
+        test_ai_connection,
+    )
+    from ..core.config_store import (
+        DEFAULT_BASE_URL,
+        DEFAULT_MODEL,
+        load_ai_config,
+        mask_api_key,
+        save_ai_config,
+    )
     from ..core.engine import analyze_text
 
 
@@ -69,17 +91,31 @@ class AIAnalysisWorker(QThread):
             self.failed.emit(f"AI 分析过程中发生未预期异常：{exc}")
 
 
+class AITestWorker(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        try:
+            text = test_ai_connection()
+            self.succeeded.emit(text)
+        except AIClientError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(f"连接测试过程中发生未预期异常：{exc}")
+
+
 class AISettingsDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("AI 设置")
-        self.resize(520, 220)
+        self.resize(540, 240)
 
         config = load_ai_config()
 
         self.api_key_edit = QLineEdit(config.get("api_key", ""))
         self.api_key_edit.setEchoMode(QLineEdit.Password)
-        self.api_key_edit.setPlaceholderText("在这里粘贴你的 OpenAI API Key")
+        self.api_key_edit.setPlaceholderText("在这里粘贴 API Key")
 
         self.base_url_edit = QLineEdit(config.get("base_url", DEFAULT_BASE_URL))
         self.base_url_edit.setPlaceholderText(DEFAULT_BASE_URL)
@@ -93,8 +129,8 @@ class AISettingsDialog(QDialog):
         form.addRow("Model", self.model_edit)
 
         tip = QLabel(
-            "说明：这里的配置会保存在当前应用目录下的 config.json 里。\n"
-            "设置一次后，后面直接双击 exe 就能继续使用 AI。"
+            "说明：配置会保存在当前应用目录下的 config.json。\n"
+            "推荐新生直接在这里设置，不需要再打开 PowerShell。"
         )
         tip.setWordWrap(True)
 
@@ -126,6 +162,7 @@ class MainWindow(QMainWindow):
         self.last_ai_preview = ""
         self.last_ai_payload_json = ""
         self.ai_worker = None
+        self.ai_test_worker = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -206,7 +243,8 @@ class MainWindow(QMainWindow):
             "3. 不要一上来就处理后面一长串连带报错\n"
             "4. 修完第一条后重新编译，再看新的第一条错误\n"
             "5. 如果准备求助，优先复制“求助文本”发给学长或群里\n"
-            "6. AI 功能推荐先在“AI 设置”里填好 Key 再使用"
+            "6. AI 功能推荐先在“AI 设置”里填好 Key 再使用\n"
+            "7. 如果不确定配得对不对，先点“测试连接”"
         )
 
         analyze_button = QPushButton("开始分析")
@@ -226,6 +264,9 @@ class MainWindow(QMainWindow):
 
         self.ai_settings_button = QPushButton("AI 设置")
         self.ai_settings_button.clicked.connect(self.handle_open_ai_settings)
+
+        self.ai_test_button = QPushButton("测试连接")
+        self.ai_test_button.clicked.connect(self.handle_test_ai_connection)
 
         copy_ai_button = QPushButton("复制 AI 内容")
         copy_ai_button.clicked.connect(self.handle_copy_ai)
@@ -279,6 +320,7 @@ class MainWindow(QMainWindow):
         ai_button_row = QHBoxLayout()
         ai_button_row.addWidget(self.ai_button)
         ai_button_row.addWidget(self.ai_settings_button)
+        ai_button_row.addWidget(self.ai_test_button)
         ai_button_row.addWidget(copy_ai_button)
 
         right_box.addWidget(ai_title)
@@ -460,6 +502,32 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.refresh_ai_status()
             QMessageBox.information(self, "提示", "AI 配置已保存。后面直接双击 exe 就能继续使用。")
+
+    def handle_test_ai_connection(self) -> None:
+        if not ai_is_configured():
+            QMessageBox.information(self, "提示", "请先在“AI 设置”里填好 API Key、Base URL 和 Model。")
+            return
+
+        self.ai_test_button.setEnabled(False)
+        self.ai_test_button.setText("测试中...")
+        self.ai_edit.setPlainText("正在测试 AI 连接，请稍等几秒...")
+
+        self.ai_test_worker = AITestWorker()
+        self.ai_test_worker.succeeded.connect(self.handle_ai_test_success)
+        self.ai_test_worker.failed.connect(self.handle_ai_test_failure)
+        self.ai_test_worker.finished.connect(self.handle_ai_test_finished)
+        self.ai_test_worker.start()
+
+    def handle_ai_test_success(self, text: str) -> None:
+        self.ai_edit.setPlainText(text)
+
+    def handle_ai_test_failure(self, message: str) -> None:
+        self.ai_edit.setPlainText(message)
+
+    def handle_ai_test_finished(self) -> None:
+        self.ai_test_button.setEnabled(True)
+        self.ai_test_button.setText("测试连接")
+        self.ai_test_worker = None
 
     def handle_ai_analysis(self) -> None:
         if not self.last_ai_preview.strip():

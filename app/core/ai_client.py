@@ -38,7 +38,7 @@ SYSTEM_PROMPT = """你是一个面向蓝桥杯单片机新手的 Keil/C51 报错
 
 
 def get_runtime_ai_config() -> dict:
-    """Resolve runtime config from local file first, then env fallback."""
+    """Resolve runtime config from local file first, then environment fallback."""
     file_config = load_ai_config()
     return {
         "api_key": file_config.get("api_key", "").strip() or os.getenv("OPENAI_API_KEY", "").strip(),
@@ -77,32 +77,15 @@ def _extract_output_text(response_data: dict) -> str:
     raise AIRequestError("AI 已返回结果，但当前版本没有成功解析出文本内容。")
 
 
-def run_ai_analysis(payload_json: str) -> str:
+def _post_json(path: str, body: dict) -> dict:
     config = get_runtime_ai_config()
     api_key = config["api_key"]
     if not api_key:
-        raise AIConfigError(
-            "当前还没有在应用里配置 API Key，所以现在只能查看 AI 预览，不能调用真实 AI。"
-        )
+        raise AIConfigError("当前还没有在应用里配置 API Key。")
 
     base_url = config["base_url"].rstrip("/")
-    model = config["model"]
-
-    user_prompt = (
-        "请根据下面结构化错误信息，给出适合蓝桥杯单片机新手的深入分析。\n\n"
-        f"{payload_json}"
-    )
-
-    body = {
-        "model": model,
-        "instructions": SYSTEM_PROMPT,
-        "input": user_prompt,
-        "text": {"verbosity": "low"},
-        "reasoning": {"effort": "none"},
-    }
-
     req = urllib.request.Request(
-        url=f"{base_url}/responses",
+        url=f"{base_url}/{path.lstrip('/')}",
         data=json.dumps(body).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
@@ -113,7 +96,7 @@ def run_ai_analysis(payload_json: str) -> str:
 
     try:
         with urllib.request.urlopen(req, timeout=60) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
+            return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         details = exc.read().decode("utf-8", errors="ignore")
         raise AIRequestError(f"AI 请求失败（HTTP {exc.code}）。\n\n{details}") from exc
@@ -122,5 +105,46 @@ def run_ai_analysis(payload_json: str) -> str:
     except Exception as exc:
         raise AIRequestError(f"AI 请求过程中发生异常：{exc}") from exc
 
+
+def test_ai_connection() -> str:
+    """Run a tiny request to confirm API key/base URL/model are usable."""
+    config = get_runtime_ai_config()
+    if not config["api_key"]:
+        raise AIConfigError("当前还没有在应用里配置 API Key。")
+
+    body = {
+        "model": config["model"],
+        "input": "Reply with OK only.",
+        "text": {"verbosity": "low"},
+        "reasoning": {"effort": "none"},
+    }
+
+    response_data = _post_json("responses", body)
+    result_text = _extract_output_text(response_data)
+    return (
+        "AI 连接测试成功\n"
+        f"Base URL：{config['base_url']}\n"
+        f"Model：{config['model']}\n"
+        f"返回结果：{result_text}"
+    )
+
+
+def run_ai_analysis(payload_json: str) -> str:
+    config = get_runtime_ai_config()
+    if not config["api_key"]:
+        raise AIConfigError(
+            "当前还没有在应用里配置 API Key，所以现在只能查看 AI 预览，不能调用真实 AI。"
+        )
+
+    body = {
+        "model": config["model"],
+        "instructions": SYSTEM_PROMPT,
+        "input": "请根据下面结构化错误信息，给出适合蓝桥杯单片机新手的深入分析。\n\n"
+        f"{payload_json}",
+        "text": {"verbosity": "low"},
+        "reasoning": {"effort": "none"},
+    }
+
+    response_data = _post_json("responses", body)
     result = _extract_output_text(response_data)
-    return f"AI 深入分析结果\n模型：{model}\n\n{result}"
+    return f"AI 深入分析结果\n模型：{config['model']}\n\n{result}"
