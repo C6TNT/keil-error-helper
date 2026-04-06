@@ -1,11 +1,14 @@
 import sys
+from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
-try:
-    from ui.main_window import MainWindow
-except ModuleNotFoundError:
-    from .ui.main_window import MainWindow
+
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
+
+from ui.main_window import MainWindow
 
 
 def main() -> int:

@@ -1,11 +1,16 @@
-try:
-    from core.engine import analyze_text
-except ModuleNotFoundError:
-    from .core.engine import analyze_text
+import sys
+from pathlib import Path
+
+
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
+
+from core.engine import analyze_text
 
 
 def main() -> None:
-    print("请粘贴 Keil 编译输出，输入空行后按 Ctrl+Z 回车结束：")
+    print("请粘贴 Keil 编译输出，输入空行后按 Ctrl+Z 再回车结束：")
     lines = []
     try:
         while True:
