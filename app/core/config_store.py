@@ -3,8 +3,8 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_BASE_URL = "https://api.openai.com/v1"
-DEFAULT_MODEL = "gpt-5.2"
+DEFAULT_BASE_URL = "https://api-inference.modelscope.cn/v1"
+DEFAULT_MODEL = "Qwen/Qwen3.5-35B-A3B"
 
 
 def get_app_root() -> Path:

@@ -247,17 +247,17 @@ class MainWindow(QMainWindow):
             "7. 如果不确定配得对不对，先点“测试连接”"
         )
 
-        analyze_button = QPushButton("开始分析")
-        analyze_button.clicked.connect(self.handle_analyze)
+        self.analyze_button = QPushButton("开始分析")
+        self.analyze_button.clicked.connect(self.handle_analyze)
 
-        load_sample_button = QPushButton("载入示例")
-        load_sample_button.clicked.connect(self.handle_load_sample)
+        self.load_sample_button = QPushButton("载入示例")
+        self.load_sample_button.clicked.connect(self.handle_load_sample)
 
-        copy_button = QPushButton("复制诊断结果")
-        copy_button.clicked.connect(self.handle_copy)
+        self.copy_button = QPushButton("复制诊断结果")
+        self.copy_button.clicked.connect(self.handle_copy)
 
-        copy_feedback_button = QPushButton("复制求助文本")
-        copy_feedback_button.clicked.connect(self.handle_copy_feedback)
+        self.copy_feedback_button = QPushButton("复制求助文本")
+        self.copy_feedback_button.clicked.connect(self.handle_copy_feedback)
 
         self.ai_button = QPushButton("AI 深入分析")
         self.ai_button.clicked.connect(self.handle_ai_analysis)
@@ -268,11 +268,11 @@ class MainWindow(QMainWindow):
         self.ai_test_button = QPushButton("测试连接")
         self.ai_test_button.clicked.connect(self.handle_test_ai_connection)
 
-        copy_ai_button = QPushButton("复制 AI 内容")
-        copy_ai_button.clicked.connect(self.handle_copy_ai)
+        self.copy_ai_button = QPushButton("复制 AI 内容")
+        self.copy_ai_button.clicked.connect(self.handle_copy_ai)
 
-        clear_button = QPushButton("清空")
-        clear_button.clicked.connect(self.handle_clear)
+        self.clear_button = QPushButton("清空")
+        self.clear_button.clicked.connect(self.handle_clear)
 
         input_title = QLabel("输入区")
         input_title.setObjectName("sectionTitle")
@@ -292,9 +292,9 @@ class MainWindow(QMainWindow):
         left_box.addWidget(self.scene_combo)
         left_box.addWidget(sample_title)
         left_box.addWidget(self.sample_combo)
-        left_box.addWidget(load_sample_button)
+        left_box.addWidget(self.load_sample_button)
         left_box.addWidget(self.input_edit)
-        left_box.addWidget(analyze_button)
+        left_box.addWidget(self.analyze_button)
 
         center_box.addWidget(self.priority_label)
         center_box.addWidget(self.priority_text)
@@ -314,14 +314,14 @@ class MainWindow(QMainWindow):
         center_box.addWidget(result_title)
         center_box.addLayout(cards_layout)
         center_box.addWidget(self.result_edit)
-        center_box.addWidget(copy_button)
-        center_box.addWidget(copy_feedback_button)
+        center_box.addWidget(self.copy_button)
+        center_box.addWidget(self.copy_feedback_button)
 
         ai_button_row = QHBoxLayout()
         ai_button_row.addWidget(self.ai_button)
         ai_button_row.addWidget(self.ai_settings_button)
         ai_button_row.addWidget(self.ai_test_button)
-        ai_button_row.addWidget(copy_ai_button)
+        ai_button_row.addWidget(self.copy_ai_button)
 
         right_box.addWidget(ai_title)
         right_box.addWidget(self.ai_status_label)
@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
         right_box.addLayout(ai_button_row)
         right_box.addWidget(tip_title)
         right_box.addWidget(self.tip_edit)
-        right_box.addWidget(clear_button)
+        right_box.addWidget(self.clear_button)
 
         layout.addLayout(left_box, 4)
         layout.addLayout(center_box, 5)
@@ -371,10 +371,19 @@ class MainWindow(QMainWindow):
             }
             QTextEdit, QComboBox, QLineEdit {
                 background: #ffffff;
+                color: #1f2f3f;
                 border: 1px solid #cfd8e3;
                 border-radius: 10px;
                 padding: 8px;
                 font-size: 13px;
+                selection-background-color: #1f6feb;
+                selection-color: #ffffff;
+            }
+            QLineEdit {
+                color: #1f2f3f;
+            }
+            QLineEdit[echoMode="2"] {
+                color: #1f2f3f;
             }
             QTextEdit#priorityBox {
                 background: #fff1e8;
@@ -456,28 +465,53 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "请先粘贴 Keil 编译输出。")
             return
 
-        result = analyze_text(text, self.scene_combo.currentData())
-        self.priority_label.setText(result.get("priority_level", "先修第一条错误"))
-        self.priority_text.setPlainText(result.get("priority_text", ""))
-        self.card_error.setPlainText(result.get("card_error", ""))
-        self.card_type.setPlainText(result.get("card_type", ""))
-        self.card_checks.setPlainText(result.get("card_checks", ""))
-        self.card_next.setPlainText(result.get("card_next", ""))
-        self.result_edit.setPlainText(result["report"])
-        self.last_feedback_text = result.get("feedback_text", "")
-        self.last_ai_preview = result.get("ai_preview", "")
-        self.last_ai_payload_json = result.get("ai_payload_json", "")
+        self.analyze_button.setEnabled(False)
+        self.analyze_button.setText("分析中...")
+        QApplication.processEvents()
 
-        if ai_is_configured():
-            self.ai_edit.setPlainText(
-                "当前已经整理好 AI 输入。\n"
-                "如果你想拿到更深入的解释和排查建议，可以点下面的“AI 深入分析”。"
+        try:
+            result = analyze_text(text, self.scene_combo.currentData())
+            self.priority_label.setText(result.get("priority_level", "先修第一条错误"))
+            self.priority_text.setPlainText(result.get("priority_text", ""))
+            self.card_error.setPlainText(result.get("card_error", ""))
+            self.card_type.setPlainText(result.get("card_type", ""))
+            self.card_checks.setPlainText(result.get("card_checks", ""))
+            self.card_next.setPlainText(result.get("card_next", ""))
+            self.result_edit.setPlainText(result.get("report", ""))
+            self.last_feedback_text = result.get("feedback_text", "")
+            self.last_ai_preview = result.get("ai_preview", "")
+            self.last_ai_payload_json = result.get("ai_payload_json", "")
+
+            if ai_is_configured():
+                self.ai_edit.setPlainText(
+                    "当前已经整理好 AI 输入。\n"
+                    "如果你想拿到更深入的解释和排查建议，可以点下面的“AI 深入分析”。"
+                )
+            else:
+                self.ai_edit.setPlainText(
+                    "当前已经整理好 AI 输入，但你还没有在应用里配置 API Key。\n"
+                    "现在点“AI 深入分析”会先展示结构化预览，建议先去“AI 设置”里补配置。"
+                )
+        except Exception as exc:
+            error_message = (
+                "开始分析时发生异常，请把下面这段信息反馈给学长：\n\n"
+                f"{type(exc).__name__}: {exc}"
             )
-        else:
-            self.ai_edit.setPlainText(
-                "当前已经整理好 AI 输入，但你还没有在应用里配置 API Key。\n"
-                "现在点“AI 深入分析”会先展示结构化预览，建议先去“AI 设置”里补配置。"
-            )
+            self.priority_label.setText("分析过程中发生异常")
+            self.priority_text.setPlainText("工具已经捕获到异常，请先复制报错信息反馈。")
+            self.card_error.setPlainText("开始分析时发生异常")
+            self.card_type.setPlainText(type(exc).__name__)
+            self.card_checks.setPlainText("先看输入内容是否完整，再把异常信息反馈出来。")
+            self.card_next.setPlainText("复制异常信息，反馈给维护者继续修复。")
+            self.result_edit.setPlainText(error_message)
+            self.last_feedback_text = error_message
+            self.last_ai_preview = ""
+            self.last_ai_payload_json = ""
+            self.ai_edit.setPlainText("分析阶段出现异常，已停止 AI 深入分析。")
+            QMessageBox.critical(self, "分析异常", error_message)
+        finally:
+            self.analyze_button.setEnabled(True)
+            self.analyze_button.setText("开始分析")
 
     def handle_load_sample(self) -> None:
         sample_name = self.sample_combo.currentData()

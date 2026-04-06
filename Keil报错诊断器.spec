@@ -5,7 +5,7 @@ a = Analysis(
     ['app\\main.py'],
     pathex=['app'],
     binaries=[],
-    datas=[],
+    datas=[('app\\data\\keil_errors.json', 'app\\data')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
