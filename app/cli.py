@@ -1,4 +1,7 @@
-from core.engine import analyze_text
+try:
+    from core.engine import analyze_text
+except ModuleNotFoundError:
+    from .core.engine import analyze_text
 
 
 def main() -> None:

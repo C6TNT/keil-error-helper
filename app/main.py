@@ -2,7 +2,10 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from ui.main_window import MainWindow
+try:
+    from ui.main_window import MainWindow
+except ModuleNotFoundError:
+    from .ui.main_window import MainWindow
 
 
 def main() -> int:

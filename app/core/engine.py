@@ -234,23 +234,180 @@ def _build_feedback_text(
     return "\n".join(lines)
 
 
-def analyze_text(text: str) -> Dict[str, str]:
+def _apply_scene_hint(
+    scene: str,
+    rule: Optional[Dict],
+    template_hint: Optional[Dict],
+) -> Optional[Dict[str, object]]:
+    if not scene or scene == "none":
+        return None
+
+    scene_map = {
+        "page": [
+            "页面",
+            "优先检查页面枚举、切页逻辑和 App_UpdateDisplay 是否同步",
+            "如果新增了页面，确认是否补了对应的显示函数和切换入口",
+        ],
+        "key": [
+            "按键",
+            "优先检查按键值映射、按键事件函数和当前界面下的按键分支",
+            "如果用了单击/双击/长按，确认拿的是对的接口",
+        ],
+        "param": [
+            "参数",
+            "优先检查参数默认值、加减逻辑、显示逻辑和保存读取是否同步",
+            "参数页报错很容易来自结构体成员名改了但旧代码还在引用",
+        ],
+        "temp": [
+            "温度",
+            "优先检查 DS18B20 读取函数、温度变量类型和显示格式",
+            "如果是温度报警题，再检查阈值比较逻辑是否同步",
+        ],
+        "freq": [
+            "频率",
+            "优先检查频率测量接口、校准值计算和显示位数是否同步",
+            "如果题目带 DAC，再检查频率和 DAC 对应关系是否一起改了",
+        ],
+        "ultra": [
+            "超声波",
+            "优先检查超声波测距函数、距离变量和运动状态判断逻辑",
+            "如果题目带接近/运动状态，别只改显示，记得改判定阈值",
+        ],
+        "display": [
+            "显示",
+            "优先检查数码管段码、页面显示函数和显示缓冲区赋值",
+            "如果是字符显示问题，先看 SEG 枚举和显示接口参数是否匹配",
+        ],
+    }
+
+    scene_info = scene_map.get(scene)
+    if not scene_info:
+        return None
+
+    scene_label = scene_info[0]
+    tips = scene_info[1:]
+    title = f"你当前选择的是“{scene_label}”场景，建议优先按这个方向排查。"
+    if rule and rule.get("id") == "undefined_identifier" and scene in ("page", "param", "display"):
+        tips = [
+            "这个报错很可能是你改了名字，但页面函数或参数结构体里还有旧名字",
+            *tips,
+        ]
+
+    if template_hint and template_hint.get("area") == "业务层（App）" and scene in ("page", "key", "param"):
+        tips = [
+            "当前又定位在 App 层，这通常说明问题就在 app.c 最近改动的那几段",
+            *tips,
+        ]
+
+    return {"title": title, "tips": tips[:3]}
+
+
+def _build_cards(
+    error: Optional[Dict[str, str]],
+    rule: Optional[Dict],
+    template_hint: Optional[Dict],
+    scene_hint: Optional[Dict[str, object]],
+) -> Dict[str, str]:
+    if not error:
+        return {
+            "card_error": "没有识别到第一条明确错误",
+            "card_type": "请先确认你粘贴的是完整 Build Output",
+            "card_checks": "先检查编译输出里是否真的有 error 行",
+            "card_next": "重新复制完整编译输出后再分析",
+        }
+
+    error_raw = error.get("raw", "未识别")
+    error_type = "暂未匹配到规则"
+    checks_text = "先检查最近改动的文件"
+    next_text = "先只修第一条错误"
+
+    if rule:
+        error_type = str(rule.get("title", error_type))
+        checks = list(rule.get("checks", []))
+        if checks:
+            checks_text = " / ".join(checks[:3])
+        next_text = str(rule.get("next_step", next_text))
+
+    if template_hint:
+        area = str(template_hint.get("area", ""))
+        if area:
+            error_type = f"{error_type} | {area}"
+    if scene_hint:
+        title = str(scene_hint.get("title", ""))
+        if title:
+            checks_text = f"{checks_text} / {title}"
+
+    return {
+        "card_error": error_raw,
+        "card_type": error_type,
+        "card_checks": checks_text,
+        "card_next": next_text,
+    }
+
+
+def _build_priority_hint(
+    error: Optional[Dict[str, str]],
+    rule: Optional[Dict],
+    pitfall_hint: Optional[Dict],
+) -> Dict[str, str]:
+    if not error:
+        return {
+            "priority_level": "请补完整编译输出",
+            "priority_text": "当前还没有提取到明确的第一条 error，先重新复制完整 Build Output。",
+        }
+
+    level = "先修这条"
+    text = "这就是你现在最该先修的错误，后面很多报错可能只是它连带出来的。"
+
+    if rule and rule.get("id") in (
+        "too_many_params",
+        "undefined_identifier",
+        "syntax_error",
+        "bit_member_struct",
+        "unknown_control",
+    ):
+        level = "高概率问题"
+        text = "这类错误通常定位很集中，修掉它之后，后面一串连带报错往往会明显减少。"
+
+    if pitfall_hint:
+        text = f"{text} 当前还检测到一个模板常见坑点，建议优先按提示检查。"
+
+    return {"priority_level": level, "priority_text": text}
+
+
+def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
     rules = load_rules()
     error = extract_first_error(text)
     rule = classify_error(error, rules) if error else None
     template_hint = _detect_template_area("" if not error else error.get("file", ""))
     pitfall_hint = _detect_template_pitfall(error, rule, template_hint)
+    scene_hint = _apply_scene_hint(scene, rule, template_hint)
     report = format_result(error, rule, template_hint, pitfall_hint)
     feedback_text = _build_feedback_text(error, rule, template_hint, pitfall_hint)
+    cards = _build_cards(error, rule, template_hint, scene_hint)
+    priority_hint = _build_priority_hint(error, rule, pitfall_hint)
+
+    if scene_hint:
+        scene_lines = ["", "当前场景加权建议：", f"- {scene_hint['title']}"]
+        for item in scene_hint.get("tips", []):
+            scene_lines.append(f"- {item}")
+        report = report + "\n" + "\n".join(scene_lines)
 
     return {
         "error_found": "yes" if error else "no",
         "report": report,
         "feedback_text": feedback_text,
+        "card_error": cards["card_error"],
+        "card_type": cards["card_type"],
+        "card_checks": cards["card_checks"],
+        "card_next": cards["card_next"],
+        "priority_level": priority_hint["priority_level"],
+        "priority_text": priority_hint["priority_text"],
         "error_code": "" if not error else error.get("code", ""),
         "error_file": "" if not error else error.get("file", ""),
         "error_line": "" if not error else error.get("line", ""),
         "rule_id": "" if not rule else rule.get("id", ""),
         "template_area": "" if not template_hint else str(template_hint.get("area", "")),
         "pitfall_title": "" if not pitfall_hint else str(pitfall_hint.get("title", "")),
+        "scene_title": "" if not scene_hint else str(scene_hint.get("title", "")),
     }
