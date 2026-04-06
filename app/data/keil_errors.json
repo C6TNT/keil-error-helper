@@ -1,0 +1,164 @@
+[
+  {
+    "id": "syntax_error",
+    "match": ["syntax error near"],
+    "title": "语法错误",
+    "summary": "代码在某个位置附近语法不合法。",
+    "causes": [
+      "少了分号、括号或花括号",
+      "函数参数列表写错",
+      "最近改动的几行有拼写或结构问题"
+    ],
+    "checks": [
+      "先检查报错行上一行和当前行",
+      "优先看最近刚改过的代码",
+      "检查括号、分号和 switch/if/function 结构是否闭合"
+    ],
+    "next_step": "先只修第一条 syntax error，再重新编译。"
+  },
+  {
+    "id": "too_many_params",
+    "match": ["too many actual parameters"],
+    "title": "函数参数个数不匹配",
+    "summary": "调用函数时传入的参数比函数声明定义的更多。",
+    "causes": [
+      ".h 和 .c 的函数参数没有同步",
+      "调用时参考了旧版本函数原型",
+      "复制代码后调用参数没有改干净"
+    ],
+    "checks": [
+      "检查当前调用位置",
+      "检查对应 .h 里的函数声明",
+      "检查对应 .c 里的函数定义"
+    ],
+    "next_step": "让调用、声明、定义三处参数完全一致。"
+  },
+  {
+    "id": "undefined_identifier",
+    "match": ["undefined identifier"],
+    "title": "标识符未定义",
+    "summary": "编译器找不到这个变量名、函数名、宏名或类型名。",
+    "causes": [
+      "名字拼错",
+      "头文件没有包含",
+      "变量或函数还没有定义"
+    ],
+    "checks": [
+      "先检查名字拼写",
+      "检查是否包含了对应头文件",
+      "全局搜索这个名字是否真的存在"
+    ],
+    "next_step": "先确认名字对不对，再确认它是否真的已经定义。"
+  },
+  {
+    "id": "multiple_definition",
+    "match": ["multiple definition", "redefinition"],
+    "title": "重复定义",
+    "summary": "同名变量、函数或类型被定义了不止一次。",
+    "causes": [
+      "把变量定义写进了头文件",
+      "同一个函数复制了两份",
+      "同一个文件被重复加入工程"
+    ],
+    "checks": [
+      "搜索同名变量或函数出现了几次",
+      "检查头文件里是否直接定义了变量",
+      "检查 Keil 工程里是否重复加文件"
+    ],
+    "next_step": "保证定义只有一处，其余地方只做声明或调用。"
+  },
+  {
+    "id": "cannot_open_source_file",
+    "match": ["cannot open source file"],
+    "title": "头文件无法打开",
+    "summary": "编译器找不到你要包含的头文件。",
+    "causes": [
+      "文件名拼错",
+      "头文件不在当前工程路径里",
+      "包含路径没有配好"
+    ],
+    "checks": [
+      "检查 include 的文件名",
+      "确认文件确实存在",
+      "检查 Keil 的包含路径"
+    ],
+    "next_step": "先确认文件名和路径，再检查工程配置。"
+  },
+  {
+    "id": "object_not_found",
+    "match": ["object file not found", "cannot open file"],
+    "title": "目标文件缺失",
+    "summary": "链接阶段找不到目标文件或依赖文件。",
+    "causes": [
+      "对应 .c 文件前面编译失败了",
+      "文件没有加入工程",
+      "工程引用了已删除文件"
+    ],
+    "checks": [
+      "先看前面那个 .c 文件有没有 error",
+      "检查文件是否在工程树里",
+      "检查文件是否改过名字或被删除"
+    ],
+    "next_step": "先修前面的编译错误，再重新链接。"
+  },
+  {
+    "id": "illegal_indirection",
+    "match": ["illegal indirection"],
+    "title": "类型与指针使用不匹配",
+    "summary": "对不该取地址或解引用的对象做了指针操作。",
+    "causes": [
+      "把普通变量当成指针使用",
+      "函数参数类型和变量类型不匹配"
+    ],
+    "checks": [
+      "检查当前变量定义类型",
+      "检查函数参数类型",
+      "检查 * 和 & 用法是否合理"
+    ],
+    "next_step": "先确认变量是不是指针，再看参数类型是否一致。"
+  },
+  {
+    "id": "bit_member_struct",
+    "match": ["bit member in struct/union"],
+    "title": "结构体中不能放 bit",
+    "summary": "Keil C51 不允许把 bit 写成结构体成员。",
+    "causes": [
+      "参考了普通 C 语法",
+      "想把状态位直接塞进结构体"
+    ],
+    "checks": [
+      "检查当前结构体定义",
+      "把 bit 成员改成 u8"
+    ],
+    "next_step": "先把结构体中的 bit 改成 u8 再编译。"
+  },
+  {
+    "id": "unknown_control",
+    "match": ["unknown control"],
+    "title": "Keil 工程配置参数异常",
+    "summary": "通常不是源码本身出错，而是工程配置节点拼错或损坏。",
+    "causes": [
+      "uvproj 中 C51/A51 控制参数异常",
+      "工程文件配置不完整"
+    ],
+    "checks": [
+      "检查 uvproj 里的 C51/A51 配置",
+      "对比可正常编译的工程配置"
+    ],
+    "next_step": "优先检查工程文件配置，而不是先改源码。"
+  },
+  {
+    "id": "target_not_created",
+    "match": ["target not created"],
+    "title": "目标未生成",
+    "summary": "这通常只是结果，不是真正根因。",
+    "causes": [
+      "前面已经有真正的编译错误"
+    ],
+    "checks": [
+      "往前翻，找第一条 error",
+      "不要只盯着最后一句"
+    ],
+    "next_step": "先修第一条真正错误，再重新编译。"
+  }
+]
