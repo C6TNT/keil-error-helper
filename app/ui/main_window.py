@@ -1,3 +1,4 @@
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -13,8 +14,10 @@ from PySide6.QtWidgets import (
 )
 
 try:
+    from core.ai_client import AIClientError, ai_is_configured, run_ai_analysis
     from core.engine import analyze_text
 except ModuleNotFoundError:
+    from ..core.ai_client import AIClientError, ai_is_configured, run_ai_analysis
     from ..core.engine import analyze_text
 
 
@@ -42,6 +45,24 @@ SAMPLE_ERRORS = {
 }
 
 
+class AIAnalysisWorker(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, payload_json: str) -> None:
+        super().__init__()
+        self.payload_json = payload_json
+
+    def run(self) -> None:
+        try:
+            text = run_ai_analysis(self.payload_json)
+            self.succeeded.emit(text)
+        except AIClientError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(f"AI 分析过程中发生未预期异常：{exc}")
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -49,6 +70,8 @@ class MainWindow(QMainWindow):
         self.resize(1320, 780)
         self.last_feedback_text = ""
         self.last_ai_preview = ""
+        self.last_ai_payload_json = ""
+        self.ai_worker = None
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -117,8 +140,8 @@ class MainWindow(QMainWindow):
         self.ai_edit.setReadOnly(True)
         self.ai_edit.setObjectName("aiBox")
         self.ai_edit.setPlaceholderText(
-            "这里会显示 AI 深入分析的预留结果。\n"
-            "当前版本先展示结构化输入，方便后续接入真实模型。"
+            "这里会显示 AI 深入分析结果。\n"
+            "如果还没有配置 OPENAI_API_KEY，这里会先展示 AI 预览。"
         )
 
         self.tip_edit = QTextEdit()
@@ -131,7 +154,7 @@ class MainWindow(QMainWindow):
             "3. 不要一上来就处理后面一长串连带报错\n"
             "4. 修完第一条后重新编译，再看新的第一条错误\n"
             "5. 如果准备求助，优先复制“求助文本”发给学长或群里\n"
-            "6. 如果想体验后续接 AI 的效果，可以点“AI 深入分析（预留）”"
+            "6. 配置 OPENAI_API_KEY 后，可以直接点“AI 深入分析”"
         )
 
         analyze_button = QPushButton("开始分析")
@@ -146,10 +169,10 @@ class MainWindow(QMainWindow):
         copy_feedback_button = QPushButton("复制求助文本")
         copy_feedback_button.clicked.connect(self.handle_copy_feedback)
 
-        ai_button = QPushButton("AI 深入分析（预留）")
-        ai_button.clicked.connect(self.handle_ai_preview)
+        self.ai_button = QPushButton("AI 深入分析")
+        self.ai_button.clicked.connect(self.handle_ai_analysis)
 
-        copy_ai_button = QPushButton("复制 AI 预览")
+        copy_ai_button = QPushButton("复制 AI 内容")
         copy_ai_button.clicked.connect(self.handle_copy_ai)
 
         clear_button = QPushButton("清空")
@@ -163,7 +186,7 @@ class MainWindow(QMainWindow):
         sample_title.setObjectName("fieldTitle")
         result_title = QLabel("诊断结果")
         result_title.setObjectName("sectionTitle")
-        ai_title = QLabel("AI 深入分析（预留）")
+        ai_title = QLabel("AI 深入分析")
         ai_title.setObjectName("sectionTitle")
         tip_title = QLabel("使用提示")
         tip_title.setObjectName("sectionTitle")
@@ -200,7 +223,7 @@ class MainWindow(QMainWindow):
 
         right_box.addWidget(ai_title)
         right_box.addWidget(self.ai_edit)
-        right_box.addWidget(ai_button)
+        right_box.addWidget(self.ai_button)
         right_box.addWidget(copy_ai_button)
         right_box.addWidget(tip_title)
         right_box.addWidget(self.tip_edit)
@@ -323,10 +346,18 @@ class MainWindow(QMainWindow):
         self.result_edit.setPlainText(result["report"])
         self.last_feedback_text = result.get("feedback_text", "")
         self.last_ai_preview = result.get("ai_preview", "")
-        self.ai_edit.setPlainText(
-            "当前已经整理好 AI 预览输入。\n"
-            "如果你想看后续接 AI 时会发什么内容，点下面的“AI 深入分析（预留）”。"
-        )
+        self.last_ai_payload_json = result.get("ai_payload_json", "")
+
+        if ai_is_configured():
+            self.ai_edit.setPlainText(
+                "当前已经整理好 AI 输入。\n"
+                "如果你想拿到更深入的解释和排查建议，可以点下面的“AI 深入分析”。"
+            )
+        else:
+            self.ai_edit.setPlainText(
+                "当前已经整理好 AI 输入，但你还没有配置 OPENAI_API_KEY。\n"
+                "现在点“AI 深入分析”会先展示结构化预览，方便你确认后续会发给 AI 的内容。"
+            )
 
     def handle_load_sample(self) -> None:
         sample_name = self.sample_combo.currentData()
@@ -346,12 +377,39 @@ class MainWindow(QMainWindow):
             self.scene_combo.setCurrentIndex(index)
         QMessageBox.information(self, "提示", "示例报错已载入，现在可以直接点“开始分析”。")
 
-    def handle_ai_preview(self) -> None:
+    def handle_ai_analysis(self) -> None:
         if not self.last_ai_preview.strip():
-            QMessageBox.information(self, "提示", "请先完成一次分析，再查看 AI 预览。")
+            QMessageBox.information(self, "提示", "请先完成一次分析，再使用 AI 深入分析。")
             return
 
-        self.ai_edit.setPlainText(self.last_ai_preview)
+        if not ai_is_configured():
+            self.ai_edit.setPlainText(
+                "当前还没有配置 OPENAI_API_KEY，所以暂时无法调用真实 AI。\n\n"
+                "你现在看到的是 AI 预览输入，后续接入模型时就会把下面这些内容发给 AI。\n\n"
+                f"{self.last_ai_preview}"
+            )
+            return
+
+        self.ai_button.setEnabled(False)
+        self.ai_button.setText("AI 正在分析...")
+        self.ai_edit.setPlainText("AI 正在分析，请稍等几秒...")
+
+        self.ai_worker = AIAnalysisWorker(self.last_ai_payload_json)
+        self.ai_worker.succeeded.connect(self.handle_ai_success)
+        self.ai_worker.failed.connect(self.handle_ai_failure)
+        self.ai_worker.finished.connect(self.handle_ai_finished)
+        self.ai_worker.start()
+
+    def handle_ai_success(self, text: str) -> None:
+        self.ai_edit.setPlainText(text)
+
+    def handle_ai_failure(self, message: str) -> None:
+        self.ai_edit.setPlainText(message)
+
+    def handle_ai_finished(self) -> None:
+        self.ai_button.setEnabled(True)
+        self.ai_button.setText("AI 深入分析")
+        self.ai_worker = None
 
     def handle_copy(self) -> None:
         text = self.result_edit.toPlainText().strip()
@@ -373,11 +431,11 @@ class MainWindow(QMainWindow):
     def handle_copy_ai(self) -> None:
         ai_text = self.ai_edit.toPlainText().strip()
         if not ai_text:
-            QMessageBox.information(self, "提示", "当前没有可复制的 AI 预览内容。")
+            QMessageBox.information(self, "提示", "当前没有可复制的 AI 内容。")
             return
 
         QApplication.clipboard().setText(ai_text)
-        QMessageBox.information(self, "提示", "AI 预览内容已复制。")
+        QMessageBox.information(self, "提示", "AI 内容已复制。")
 
     def handle_clear(self) -> None:
         self.input_edit.clear()
@@ -391,3 +449,5 @@ class MainWindow(QMainWindow):
         self.ai_edit.clear()
         self.last_feedback_text = ""
         self.last_ai_preview = ""
+        self.last_ai_payload_json = ""
+

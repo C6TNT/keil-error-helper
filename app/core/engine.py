@@ -334,6 +334,7 @@ def _build_cards(
         area = str(template_hint.get("area", ""))
         if area:
             error_type = f"{error_type} | {area}"
+
     if scene_hint:
         title = str(scene_hint.get("title", ""))
         if title:
@@ -377,7 +378,7 @@ def _build_priority_hint(
     return {"priority_level": level, "priority_text": text}
 
 
-def _build_ai_preview(
+def _build_ai_payload(
     raw_text: str,
     error: Optional[Dict[str, str]],
     rule: Optional[Dict],
@@ -387,11 +388,11 @@ def _build_ai_preview(
     scene_hint: Optional[Dict[str, object]],
     cards: Dict[str, str],
     priority_hint: Dict[str, str],
-) -> str:
-    payload = {
+) -> Dict[str, object]:
+    return {
         "product": "keil-error-helper",
-        "mode": "ai-preview",
-        "note": "当前还是 AI 预留模式，这份内容用于展示后续会发给 AI 的结构化输入。",
+        "mode": "ai-analysis",
+        "note": "这份结构化输入用于给 AI 做更深入的解释和排查建议。",
         "first_error_found": bool(error),
         "scene": scene,
         "scene_title": "" if not scene_hint else scene_hint.get("title", ""),
@@ -406,7 +407,7 @@ def _build_ai_preview(
         "rule": {
             "id": "" if not rule else rule.get("id", ""),
             "title": "" if not rule else rule.get("title", ""),
-            "meaning": "" if not rule else rule.get("meaning", ""),
+            "summary": "" if not rule else rule.get("summary", ""),
             "checks": [] if not rule else list(rule.get("checks", [])),
             "next_step": "" if not rule else rule.get("next_step", ""),
         },
@@ -422,12 +423,14 @@ def _build_ai_preview(
         "raw_build_output": raw_text,
     }
 
+
+def _build_ai_preview(payload: Dict[str, object]) -> str:
+    payload_json = json.dumps(payload, ensure_ascii=False, indent=2)
     intro = (
-        "AI 深入分析（预留）\n"
-        "当前版本还没有接入真实模型，这里先展示工具整理好的结构化输入。\n"
-        "后续接入 AI 时，我们会把下面这些信息发给模型，而不是直接把一整段报错原文扔过去。\n\n"
+        "AI 深入分析（预览）\n"
+        "当前会把下面这些结构化信息发给 AI，而不是直接把一整段报错原文扔过去。\n\n"
     )
-    return intro + json.dumps(payload, ensure_ascii=False, indent=2)
+    return intro + payload_json
 
 
 def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
@@ -441,7 +444,7 @@ def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
     feedback_text = _build_feedback_text(error, rule, template_hint, pitfall_hint)
     cards = _build_cards(error, rule, template_hint, scene_hint)
     priority_hint = _build_priority_hint(error, rule, pitfall_hint)
-    ai_preview = _build_ai_preview(
+    ai_payload = _build_ai_payload(
         text,
         error,
         rule,
@@ -452,6 +455,8 @@ def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
         cards,
         priority_hint,
     )
+    ai_payload_json = json.dumps(ai_payload, ensure_ascii=False, indent=2)
+    ai_preview = _build_ai_preview(ai_payload)
 
     if scene_hint:
         scene_lines = ["", "当前场景加权建议：", f"- {scene_hint['title']}"]
@@ -464,6 +469,7 @@ def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
         "report": report,
         "feedback_text": feedback_text,
         "ai_preview": ai_preview,
+        "ai_payload_json": ai_payload_json,
         "card_error": cards["card_error"],
         "card_type": cards["card_type"],
         "card_checks": cards["card_checks"],
