@@ -2,9 +2,13 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -15,9 +19,11 @@ from PySide6.QtWidgets import (
 
 try:
     from core.ai_client import AIClientError, ai_is_configured, run_ai_analysis
+    from core.config_store import DEFAULT_BASE_URL, DEFAULT_MODEL, load_ai_config, mask_api_key, save_ai_config
     from core.engine import analyze_text
 except ModuleNotFoundError:
     from ..core.ai_client import AIClientError, ai_is_configured, run_ai_analysis
+    from ..core.config_store import DEFAULT_BASE_URL, DEFAULT_MODEL, load_ai_config, mask_api_key, save_ai_config
     from ..core.engine import analyze_text
 
 
@@ -63,11 +69,59 @@ class AIAnalysisWorker(QThread):
             self.failed.emit(f"AI 分析过程中发生未预期异常：{exc}")
 
 
+class AISettingsDialog(QDialog):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("AI 设置")
+        self.resize(520, 220)
+
+        config = load_ai_config()
+
+        self.api_key_edit = QLineEdit(config.get("api_key", ""))
+        self.api_key_edit.setEchoMode(QLineEdit.Password)
+        self.api_key_edit.setPlaceholderText("在这里粘贴你的 OpenAI API Key")
+
+        self.base_url_edit = QLineEdit(config.get("base_url", DEFAULT_BASE_URL))
+        self.base_url_edit.setPlaceholderText(DEFAULT_BASE_URL)
+
+        self.model_edit = QLineEdit(config.get("model", DEFAULT_MODEL))
+        self.model_edit.setPlaceholderText(DEFAULT_MODEL)
+
+        form = QFormLayout()
+        form.addRow("API Key", self.api_key_edit)
+        form.addRow("Base URL", self.base_url_edit)
+        form.addRow("Model", self.model_edit)
+
+        tip = QLabel(
+            "说明：这里的配置会保存在当前应用目录下的 config.json 里。\n"
+            "设置一次后，后面直接双击 exe 就能继续使用 AI。"
+        )
+        tip.setWordWrap(True)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.handle_save)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout()
+        layout.addLayout(form)
+        layout.addWidget(tip)
+        layout.addWidget(buttons)
+        self.setLayout(layout)
+
+    def handle_save(self) -> None:
+        save_ai_config(
+            self.api_key_edit.text(),
+            self.base_url_edit.text(),
+            self.model_edit.text(),
+        )
+        self.accept()
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Keil报错诊断器")
-        self.resize(1320, 780)
+        self.setWindowTitle("Keil 报错诊断器")
+        self.resize(1380, 820)
         self.last_feedback_text = ""
         self.last_ai_preview = ""
         self.last_ai_payload_json = ""
@@ -136,13 +190,11 @@ class MainWindow(QMainWindow):
         self.result_edit.setReadOnly(True)
         self.result_edit.setObjectName("resultBox")
 
+        self.ai_status_label = QLabel()
+        self.ai_status_label.setObjectName("fieldTitle")
         self.ai_edit = QTextEdit()
         self.ai_edit.setReadOnly(True)
         self.ai_edit.setObjectName("aiBox")
-        self.ai_edit.setPlaceholderText(
-            "这里会显示 AI 深入分析结果。\n"
-            "如果还没有配置 OPENAI_API_KEY，这里会先展示 AI 预览。"
-        )
 
         self.tip_edit = QTextEdit()
         self.tip_edit.setReadOnly(True)
@@ -154,7 +206,7 @@ class MainWindow(QMainWindow):
             "3. 不要一上来就处理后面一长串连带报错\n"
             "4. 修完第一条后重新编译，再看新的第一条错误\n"
             "5. 如果准备求助，优先复制“求助文本”发给学长或群里\n"
-            "6. 配置 OPENAI_API_KEY 后，可以直接点“AI 深入分析”"
+            "6. AI 功能推荐先在“AI 设置”里填好 Key 再使用"
         )
 
         analyze_button = QPushButton("开始分析")
@@ -171,6 +223,9 @@ class MainWindow(QMainWindow):
 
         self.ai_button = QPushButton("AI 深入分析")
         self.ai_button.clicked.connect(self.handle_ai_analysis)
+
+        self.ai_settings_button = QPushButton("AI 设置")
+        self.ai_settings_button.clicked.connect(self.handle_open_ai_settings)
 
         copy_ai_button = QPushButton("复制 AI 内容")
         copy_ai_button.clicked.connect(self.handle_copy_ai)
@@ -221,10 +276,15 @@ class MainWindow(QMainWindow):
         center_box.addWidget(copy_button)
         center_box.addWidget(copy_feedback_button)
 
+        ai_button_row = QHBoxLayout()
+        ai_button_row.addWidget(self.ai_button)
+        ai_button_row.addWidget(self.ai_settings_button)
+        ai_button_row.addWidget(copy_ai_button)
+
         right_box.addWidget(ai_title)
+        right_box.addWidget(self.ai_status_label)
         right_box.addWidget(self.ai_edit)
-        right_box.addWidget(self.ai_button)
-        right_box.addWidget(copy_ai_button)
+        right_box.addLayout(ai_button_row)
         right_box.addWidget(tip_title)
         right_box.addWidget(self.tip_edit)
         right_box.addWidget(clear_button)
@@ -235,6 +295,7 @@ class MainWindow(QMainWindow):
 
         root.addLayout(layout)
         central.setLayout(root)
+        self.refresh_ai_status()
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
@@ -266,7 +327,7 @@ class MainWindow(QMainWindow):
                 color: #8a3b12;
                 padding: 2px 0 4px 0;
             }
-            QTextEdit, QComboBox {
+            QTextEdit, QComboBox, QLineEdit {
                 background: #ffffff;
                 border: 1px solid #cfd8e3;
                 border-radius: 10px;
@@ -330,6 +391,23 @@ class MainWindow(QMainWindow):
         label.setObjectName("cardTitle")
         return label
 
+    def refresh_ai_status(self) -> None:
+        config = load_ai_config()
+        self.ai_status_label.setText(
+            f"当前 AI 配置：Key={mask_api_key(config.get('api_key', ''))} | "
+            f"Model={config.get('model', DEFAULT_MODEL) or DEFAULT_MODEL}"
+        )
+        if ai_is_configured():
+            self.ai_edit.setPlaceholderText(
+                "这里会显示 AI 深入分析结果。\n"
+                "当前已经配置好 API Key，可以直接使用 AI。"
+            )
+        else:
+            self.ai_edit.setPlaceholderText(
+                "这里会显示 AI 深入分析结果。\n"
+                "当前还没配置 API Key，建议先点“AI 设置”。"
+            )
+
     def handle_analyze(self) -> None:
         text = self.input_edit.toPlainText().strip()
         if not text:
@@ -355,8 +433,8 @@ class MainWindow(QMainWindow):
             )
         else:
             self.ai_edit.setPlainText(
-                "当前已经整理好 AI 输入，但你还没有配置 OPENAI_API_KEY。\n"
-                "现在点“AI 深入分析”会先展示结构化预览，方便你确认后续会发给 AI 的内容。"
+                "当前已经整理好 AI 输入，但你还没有在应用里配置 API Key。\n"
+                "现在点“AI 深入分析”会先展示结构化预览，建议先去“AI 设置”里补配置。"
             )
 
     def handle_load_sample(self) -> None:
@@ -377,6 +455,12 @@ class MainWindow(QMainWindow):
             self.scene_combo.setCurrentIndex(index)
         QMessageBox.information(self, "提示", "示例报错已载入，现在可以直接点“开始分析”。")
 
+    def handle_open_ai_settings(self) -> None:
+        dialog = AISettingsDialog(self)
+        if dialog.exec():
+            self.refresh_ai_status()
+            QMessageBox.information(self, "提示", "AI 配置已保存。后面直接双击 exe 就能继续使用。")
+
     def handle_ai_analysis(self) -> None:
         if not self.last_ai_preview.strip():
             QMessageBox.information(self, "提示", "请先完成一次分析，再使用 AI 深入分析。")
@@ -384,7 +468,7 @@ class MainWindow(QMainWindow):
 
         if not ai_is_configured():
             self.ai_edit.setPlainText(
-                "当前还没有配置 OPENAI_API_KEY，所以暂时无法调用真实 AI。\n\n"
+                "当前还没有在应用里配置 API Key，所以暂时无法调用真实 AI。\n\n"
                 "你现在看到的是 AI 预览输入，后续接入模型时就会把下面这些内容发给 AI。\n\n"
                 f"{self.last_ai_preview}"
             )
@@ -450,4 +534,4 @@ class MainWindow(QMainWindow):
         self.last_feedback_text = ""
         self.last_ai_preview = ""
         self.last_ai_payload_json = ""
-
+        self.refresh_ai_status()

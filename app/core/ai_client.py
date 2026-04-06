@@ -3,6 +3,11 @@ import os
 import urllib.error
 import urllib.request
 
+try:
+    from core.config_store import DEFAULT_BASE_URL, DEFAULT_MODEL, load_ai_config
+except ModuleNotFoundError:
+    from .config_store import DEFAULT_BASE_URL, DEFAULT_MODEL, load_ai_config
+
 
 class AIClientError(Exception):
     pass
@@ -32,8 +37,22 @@ SYSTEM_PROMPT = """你是一个面向蓝桥杯单片机新手的 Keil/C51 报错
 """
 
 
+def get_runtime_ai_config() -> dict:
+    """Resolve runtime config from local file first, then env fallback."""
+    file_config = load_ai_config()
+    return {
+        "api_key": file_config.get("api_key", "").strip() or os.getenv("OPENAI_API_KEY", "").strip(),
+        "base_url": file_config.get("base_url", "").strip()
+        or os.getenv("OPENAI_BASE_URL", DEFAULT_BASE_URL).strip()
+        or DEFAULT_BASE_URL,
+        "model": file_config.get("model", "").strip()
+        or os.getenv("KEIL_ERROR_HELPER_OPENAI_MODEL", DEFAULT_MODEL).strip()
+        or DEFAULT_MODEL,
+    }
+
+
 def ai_is_configured() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY", "").strip())
+    return bool(get_runtime_ai_config()["api_key"])
 
 
 def _extract_output_text(response_data: dict) -> str:
@@ -59,14 +78,15 @@ def _extract_output_text(response_data: dict) -> str:
 
 
 def run_ai_analysis(payload_json: str) -> str:
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    config = get_runtime_ai_config()
+    api_key = config["api_key"]
     if not api_key:
         raise AIConfigError(
-            "当前还没有配置 OPENAI_API_KEY，所以现在只能查看 AI 预览，不能调用真实 AI。"
+            "当前还没有在应用里配置 API Key，所以现在只能查看 AI 预览，不能调用真实 AI。"
         )
 
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
-    model = os.getenv("KEIL_ERROR_HELPER_OPENAI_MODEL", "gpt-5.2")
+    base_url = config["base_url"].rstrip("/")
+    model = config["model"]
 
     user_prompt = (
         "请根据下面结构化错误信息，给出适合蓝桥杯单片机新手的深入分析。\n\n"

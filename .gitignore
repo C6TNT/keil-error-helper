@@ -8,6 +8,7 @@ venv/
 
 build/
 dist/
+config.json
+*.spec
 
 *.log
-
