@@ -3,7 +3,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QGridLayout,
     QHBoxLayout,
-    QFrame,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -47,8 +46,9 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Keil报错诊断器")
-        self.resize(1180, 720)
+        self.resize(1320, 780)
         self.last_feedback_text = ""
+        self.last_ai_preview = ""
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -86,29 +86,40 @@ class MainWindow(QMainWindow):
         self.priority_label.setObjectName("priorityTitle")
         self.priority_text = QTextEdit()
         self.priority_text.setReadOnly(True)
-        self.priority_text.setMaximumHeight(72)
+        self.priority_text.setMaximumHeight(76)
         self.priority_text.setObjectName("priorityBox")
 
         self.card_error = QTextEdit()
         self.card_error.setReadOnly(True)
-        self.card_error.setMaximumHeight(90)
+        self.card_error.setMaximumHeight(92)
         self.card_error.setObjectName("cardBox")
+
         self.card_type = QTextEdit()
         self.card_type.setReadOnly(True)
-        self.card_type.setMaximumHeight(90)
+        self.card_type.setMaximumHeight(92)
         self.card_type.setObjectName("cardBox")
+
         self.card_checks = QTextEdit()
         self.card_checks.setReadOnly(True)
-        self.card_checks.setMaximumHeight(90)
+        self.card_checks.setMaximumHeight(92)
         self.card_checks.setObjectName("cardBox")
+
         self.card_next = QTextEdit()
         self.card_next.setReadOnly(True)
-        self.card_next.setMaximumHeight(90)
+        self.card_next.setMaximumHeight(92)
         self.card_next.setObjectName("cardBox")
 
         self.result_edit = QTextEdit()
         self.result_edit.setReadOnly(True)
         self.result_edit.setObjectName("resultBox")
+
+        self.ai_edit = QTextEdit()
+        self.ai_edit.setReadOnly(True)
+        self.ai_edit.setObjectName("aiBox")
+        self.ai_edit.setPlaceholderText(
+            "这里会显示 AI 深入分析的预留结果。\n"
+            "当前版本先展示结构化输入，方便后续接入真实模型。"
+        )
 
         self.tip_edit = QTextEdit()
         self.tip_edit.setReadOnly(True)
@@ -120,6 +131,7 @@ class MainWindow(QMainWindow):
             "3. 不要一上来就处理后面一长串连带报错\n"
             "4. 修完第一条后重新编译，再看新的第一条错误\n"
             "5. 如果准备求助，优先复制“求助文本”发给学长或群里\n"
+            "6. 如果想体验后续接 AI 的效果，可以点“AI 深入分析（预留）”"
         )
 
         analyze_button = QPushButton("开始分析")
@@ -134,6 +146,12 @@ class MainWindow(QMainWindow):
         copy_feedback_button = QPushButton("复制求助文本")
         copy_feedback_button.clicked.connect(self.handle_copy_feedback)
 
+        ai_button = QPushButton("AI 深入分析（预留）")
+        ai_button.clicked.connect(self.handle_ai_preview)
+
+        copy_ai_button = QPushButton("复制 AI 预览")
+        copy_ai_button.clicked.connect(self.handle_copy_ai)
+
         clear_button = QPushButton("清空")
         clear_button.clicked.connect(self.handle_clear)
 
@@ -145,6 +163,8 @@ class MainWindow(QMainWindow):
         sample_title.setObjectName("fieldTitle")
         result_title = QLabel("诊断结果")
         result_title.setObjectName("sectionTitle")
+        ai_title = QLabel("AI 深入分析（预留）")
+        ai_title.setObjectName("sectionTitle")
         tip_title = QLabel("使用提示")
         tip_title.setObjectName("sectionTitle")
 
@@ -178,13 +198,17 @@ class MainWindow(QMainWindow):
         center_box.addWidget(copy_button)
         center_box.addWidget(copy_feedback_button)
 
+        right_box.addWidget(ai_title)
+        right_box.addWidget(self.ai_edit)
+        right_box.addWidget(ai_button)
+        right_box.addWidget(copy_ai_button)
         right_box.addWidget(tip_title)
         right_box.addWidget(self.tip_edit)
         right_box.addWidget(clear_button)
 
         layout.addLayout(left_box, 4)
-        layout.addLayout(center_box, 4)
-        layout.addLayout(right_box, 2)
+        layout.addLayout(center_box, 5)
+        layout.addLayout(right_box, 3)
 
         root.addLayout(layout)
         central.setLayout(root)
@@ -248,6 +272,12 @@ class MainWindow(QMainWindow):
                 border-radius: 12px;
                 color: #1f2f3f;
             }
+            QTextEdit#aiBox {
+                background: #eefaf3;
+                border: 1px solid #bfe4cb;
+                border-radius: 12px;
+                color: #173b28;
+            }
             QTextEdit#tipBox {
                 background: #fff8e8;
                 border: 1px solid #f0d79a;
@@ -292,6 +322,11 @@ class MainWindow(QMainWindow):
         self.card_next.setPlainText(result.get("card_next", ""))
         self.result_edit.setPlainText(result["report"])
         self.last_feedback_text = result.get("feedback_text", "")
+        self.last_ai_preview = result.get("ai_preview", "")
+        self.ai_edit.setPlainText(
+            "当前已经整理好 AI 预览输入。\n"
+            "如果你想看后续接 AI 时会发什么内容，点下面的“AI 深入分析（预留）”。"
+        )
 
     def handle_load_sample(self) -> None:
         sample_name = self.sample_combo.currentData()
@@ -311,6 +346,13 @@ class MainWindow(QMainWindow):
             self.scene_combo.setCurrentIndex(index)
         QMessageBox.information(self, "提示", "示例报错已载入，现在可以直接点“开始分析”。")
 
+    def handle_ai_preview(self) -> None:
+        if not self.last_ai_preview.strip():
+            QMessageBox.information(self, "提示", "请先完成一次分析，再查看 AI 预览。")
+            return
+
+        self.ai_edit.setPlainText(self.last_ai_preview)
+
     def handle_copy(self) -> None:
         text = self.result_edit.toPlainText().strip()
         if not text:
@@ -328,6 +370,15 @@ class MainWindow(QMainWindow):
         QApplication.clipboard().setText(self.last_feedback_text)
         QMessageBox.information(self, "提示", "求助文本已复制，可以直接发给学长或群里。")
 
+    def handle_copy_ai(self) -> None:
+        ai_text = self.ai_edit.toPlainText().strip()
+        if not ai_text:
+            QMessageBox.information(self, "提示", "当前没有可复制的 AI 预览内容。")
+            return
+
+        QApplication.clipboard().setText(ai_text)
+        QMessageBox.information(self, "提示", "AI 预览内容已复制。")
+
     def handle_clear(self) -> None:
         self.input_edit.clear()
         self.priority_label.setText("先修第一条错误")
@@ -337,4 +388,6 @@ class MainWindow(QMainWindow):
         self.card_checks.clear()
         self.card_next.clear()
         self.result_edit.clear()
+        self.ai_edit.clear()
         self.last_feedback_text = ""
+        self.last_ai_preview = ""

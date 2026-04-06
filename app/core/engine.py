@@ -1,3 +1,4 @@
+import json
 from typing import Dict, Optional
 
 from .classifier import classify_error, load_rules
@@ -17,7 +18,7 @@ def _detect_template_area(file_path: str) -> Optional[Dict[str, object]]:
             [
                 "优先检查页面枚举、按键逻辑、参数结构体和 App_Loop",
                 "如果你刚替换了某一届示例，先看 app.c 最近改动的那几段",
-                "很多综合题问题最后都会落在 App/app.c",
+                "很多综合题问题最后都会落到 App/app.c",
             ],
         ),
         (
@@ -74,7 +75,7 @@ def _detect_template_pitfall(
         return None
 
     file_path = error.get("file", "").replace("\\", "/").lower()
-    rule_id = "" if not rule else rule.get("id", "")
+    rule_id = "" if not rule else str(rule.get("id", ""))
 
     if "app/" in file_path:
         if rule_id == "too_many_params":
@@ -87,14 +88,14 @@ def _detect_template_pitfall(
             }
         if rule_id == "undefined_identifier":
             return {
-                "title": "你可能删了旧变量，但后面页面函数或按键函数还在用。",
+                "title": "你可能删了旧变量，但后面的页面函数或按键函数还在引用它。",
                 "tips": [
                     "先全局搜索这个名字是否还被 App_ShowXXXPage 或 App_HandleKey 使用",
                     "删变量之前最好先确认它是不是页面、参数或状态的核心变量",
                 ],
             }
         return {
-            "title": "业务层最常见的坑是页面、按键、参数没有同步修改。",
+            "title": "业务层最常见的坑，是页面、按键、参数没有同步修改。",
             "tips": [
                 "新增页面后，要同步改 App_UpdateDisplay 和切页逻辑",
                 "新增参数后，要同步改默认值、显示、加减和保存读取",
@@ -103,7 +104,7 @@ def _detect_template_pitfall(
 
     if "bsp/" in file_path:
         return {
-            "title": "板级驱动层最常见的坑是接口原型不一致。",
+            "title": "板级驱动层最常见的坑，是接口原型不一致。",
             "tips": [
                 "优先检查 .h 里的声明和 .c 里的定义是否完全一致",
                 "如果是 bsp_seg 报错，先看参数个数和段码接口是否改乱了",
@@ -112,7 +113,7 @@ def _detect_template_pitfall(
 
     if "devices/" in file_path:
         return {
-            "title": "设备层最常见的坑是把采样逻辑和页面逻辑混改。",
+            "title": "设备层最常见的坑，是把采样逻辑和页面逻辑混改了。",
             "tips": [
                 "Devices 更适合只做器件功能，不要直接写页面显示",
                 "优先确认返回值类型和参数有没有改错",
@@ -121,16 +122,16 @@ def _detect_template_pitfall(
 
     if "drivers/" in file_path:
         return {
-            "title": "底层驱动层最常见的坑是新手改了不该先改的地方。",
+            "title": "底层驱动层最常见的坑，是新手改了不该先改的地方。",
             "tips": [
                 "如果只是赛题功能变化，通常先改 App，不要先改 Drivers",
-                "真要改 Drivers，先确认是底层接口问题而不是业务逻辑问题",
+                "真要改 Drivers，先确认是底层接口问题，而不是业务逻辑问题",
             ],
         }
 
     if "examples/" in file_path:
         return {
-            "title": "示例层最常见的坑是把学习示例直接当成最终答案使用。",
+            "title": "示例层最常见的坑，是把学习示例直接当成最终答案使用。",
             "tips": [
                 "建议先看对应 .md，再把逻辑迁回 App/app.c",
                 "如果示例报错，优先检查变量名、页面枚举和参数结构体是否同步",
@@ -204,7 +205,7 @@ def _build_feedback_text(
             lines.append(f"{index}. {item}")
     else:
         lines.append("1. 先只看第一条错误，不要先处理后面的连带报错")
-        lines.append("2. 先检查最近修改过的那个文件")
+        lines.append("2. 先检查最近改动过的那个文件")
 
     if template_suggestions:
         lines.append("")
@@ -287,6 +288,7 @@ def _apply_scene_hint(
     scene_label = scene_info[0]
     tips = scene_info[1:]
     title = f"你当前选择的是“{scene_label}”场景，建议优先按这个方向排查。"
+
     if rule and rule.get("id") == "undefined_identifier" and scene in ("page", "param", "display"):
         tips = [
             "这个报错很可能是你改了名字，但页面函数或参数结构体里还有旧名字",
@@ -299,7 +301,7 @@ def _apply_scene_hint(
             *tips,
         ]
 
-    return {"title": title, "tips": tips[:3]}
+    return {"title": title, "tips": tips[:3], "scene_label": scene_label}
 
 
 def _build_cards(
@@ -375,6 +377,59 @@ def _build_priority_hint(
     return {"priority_level": level, "priority_text": text}
 
 
+def _build_ai_preview(
+    raw_text: str,
+    error: Optional[Dict[str, str]],
+    rule: Optional[Dict],
+    template_hint: Optional[Dict],
+    pitfall_hint: Optional[Dict],
+    scene: str,
+    scene_hint: Optional[Dict[str, object]],
+    cards: Dict[str, str],
+    priority_hint: Dict[str, str],
+) -> str:
+    payload = {
+        "product": "keil-error-helper",
+        "mode": "ai-preview",
+        "note": "当前还是 AI 预留模式，这份内容用于展示后续会发给 AI 的结构化输入。",
+        "first_error_found": bool(error),
+        "scene": scene,
+        "scene_title": "" if not scene_hint else scene_hint.get("title", ""),
+        "priority_level": priority_hint.get("priority_level", ""),
+        "priority_text": priority_hint.get("priority_text", ""),
+        "first_error": {
+            "raw": "" if not error else error.get("raw", ""),
+            "code": "" if not error else error.get("code", ""),
+            "file": "" if not error else error.get("file", ""),
+            "line": "" if not error else error.get("line", ""),
+        },
+        "rule": {
+            "id": "" if not rule else rule.get("id", ""),
+            "title": "" if not rule else rule.get("title", ""),
+            "meaning": "" if not rule else rule.get("meaning", ""),
+            "checks": [] if not rule else list(rule.get("checks", [])),
+            "next_step": "" if not rule else rule.get("next_step", ""),
+        },
+        "template_hint": {
+            "area": "" if not template_hint else template_hint.get("area", ""),
+            "suggestions": [] if not template_hint else list(template_hint.get("suggestions", [])),
+        },
+        "pitfall_hint": {
+            "title": "" if not pitfall_hint else pitfall_hint.get("title", ""),
+            "tips": [] if not pitfall_hint else list(pitfall_hint.get("tips", [])),
+        },
+        "cards": cards,
+        "raw_build_output": raw_text,
+    }
+
+    intro = (
+        "AI 深入分析（预留）\n"
+        "当前版本还没有接入真实模型，这里先展示工具整理好的结构化输入。\n"
+        "后续接入 AI 时，我们会把下面这些信息发给模型，而不是直接把一整段报错原文扔过去。\n\n"
+    )
+    return intro + json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
     rules = load_rules()
     error = extract_first_error(text)
@@ -386,6 +441,17 @@ def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
     feedback_text = _build_feedback_text(error, rule, template_hint, pitfall_hint)
     cards = _build_cards(error, rule, template_hint, scene_hint)
     priority_hint = _build_priority_hint(error, rule, pitfall_hint)
+    ai_preview = _build_ai_preview(
+        text,
+        error,
+        rule,
+        template_hint,
+        pitfall_hint,
+        scene,
+        scene_hint,
+        cards,
+        priority_hint,
+    )
 
     if scene_hint:
         scene_lines = ["", "当前场景加权建议：", f"- {scene_hint['title']}"]
@@ -397,6 +463,7 @@ def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
         "error_found": "yes" if error else "no",
         "report": report,
         "feedback_text": feedback_text,
+        "ai_preview": ai_preview,
         "card_error": cards["card_error"],
         "card_type": cards["card_type"],
         "card_checks": cards["card_checks"],
@@ -406,7 +473,7 @@ def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
         "error_code": "" if not error else error.get("code", ""),
         "error_file": "" if not error else error.get("file", ""),
         "error_line": "" if not error else error.get("line", ""),
-        "rule_id": "" if not rule else rule.get("id", ""),
+        "rule_id": "" if not rule else str(rule.get("id", "")),
         "template_area": "" if not template_hint else str(template_hint.get("area", "")),
         "pitfall_title": "" if not pitfall_hint else str(pitfall_hint.get("title", "")),
         "scene_title": "" if not scene_hint else str(scene_hint.get("title", "")),
