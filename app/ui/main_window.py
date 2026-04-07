@@ -21,6 +21,7 @@ try:
     from core.ai_client import (
         AIClientError,
         ai_is_configured,
+        build_ai_cards,
         run_ai_analysis,
         test_ai_connection,
     )
@@ -36,6 +37,7 @@ except ModuleNotFoundError:
     from ..core.ai_client import (
         AIClientError,
         ai_is_configured,
+        build_ai_cards,
         run_ai_analysis,
         test_ai_connection,
     )
@@ -238,6 +240,21 @@ class MainWindow(QMainWindow):
 
         self.ai_status_label = QLabel()
         self.ai_status_label.setObjectName("fieldTitle")
+        self.ai_card_problem = QTextEdit()
+        self.ai_card_problem.setReadOnly(True)
+        self.ai_card_problem.setMaximumHeight(92)
+        self.ai_card_problem.setObjectName("aiCardBox")
+
+        self.ai_card_checks = QTextEdit()
+        self.ai_card_checks.setReadOnly(True)
+        self.ai_card_checks.setMaximumHeight(92)
+        self.ai_card_checks.setObjectName("aiCardBox")
+
+        self.ai_card_miss = QTextEdit()
+        self.ai_card_miss.setReadOnly(True)
+        self.ai_card_miss.setMaximumHeight(92)
+        self.ai_card_miss.setObjectName("aiCardBox")
+
         self.ai_edit = QTextEdit()
         self.ai_edit.setReadOnly(True)
         self.ai_edit.setObjectName("aiBox")
@@ -338,6 +355,12 @@ class MainWindow(QMainWindow):
 
         right_box.addWidget(ai_title)
         right_box.addWidget(self.ai_status_label)
+        right_box.addWidget(self._make_card_title("这条错误更像什么问题"))
+        right_box.addWidget(self.ai_card_problem)
+        right_box.addWidget(self._make_card_title("你应该先看哪几处"))
+        right_box.addWidget(self.ai_card_checks)
+        right_box.addWidget(self._make_card_title("如果你刚在改某个模块，最可能漏改哪里"))
+        right_box.addWidget(self.ai_card_miss)
         right_box.addWidget(self.ai_edit)
         right_box.addLayout(ai_button_row)
         right_box.addWidget(tip_title)
@@ -426,6 +449,14 @@ class MainWindow(QMainWindow):
                 border-radius: 12px;
                 color: #173b28;
             }
+            QTextEdit#aiCardBox {
+                background: #f0fbf4;
+                border: 1px solid #bfe4cb;
+                border-radius: 12px;
+                color: #173b28;
+                font-size: 13px;
+                font-weight: 600;
+            }
             QTextEdit#tipBox {
                 background: #fff8e8;
                 border: 1px solid #f0d79a;
@@ -471,6 +502,9 @@ class MainWindow(QMainWindow):
                 "这里会显示 AI 深入分析结果。\n"
                 "当前还没配置 API Key，建议先点“AI 设置”。"
             )
+        self.ai_card_problem.setPlainText("完成一次分析后，这里会显示 AI 提炼出的核心判断。")
+        self.ai_card_checks.setPlainText("完成一次分析后，这里会显示 AI 建议优先检查的位置。")
+        self.ai_card_miss.setPlainText("完成一次分析后，这里会显示 AI 推测最容易漏改的点。")
 
     def handle_analyze(self) -> None:
         text = self.input_edit.toPlainText().strip()
@@ -591,6 +625,10 @@ class MainWindow(QMainWindow):
                 "你现在看到的是 AI 预览输入，后续接入模型时就会把下面这些内容发给 AI。\n\n"
                 f"{self.last_ai_preview}"
             )
+            preview_cards = build_ai_cards(self.last_ai_preview)
+            self.ai_card_problem.setPlainText(preview_cards["problem"])
+            self.ai_card_checks.setPlainText(preview_cards["checks"])
+            self.ai_card_miss.setPlainText(preview_cards["miss"])
             return
 
         self.ai_button.setEnabled(False)
@@ -604,9 +642,16 @@ class MainWindow(QMainWindow):
         self.ai_worker.start()
 
     def handle_ai_success(self, text: str) -> None:
+        cards = build_ai_cards(text)
+        self.ai_card_problem.setPlainText(cards["problem"])
+        self.ai_card_checks.setPlainText(cards["checks"])
+        self.ai_card_miss.setPlainText(cards["miss"])
         self.ai_edit.setPlainText(text)
 
     def handle_ai_failure(self, message: str) -> None:
+        self.ai_card_problem.setPlainText("AI 调用失败")
+        self.ai_card_checks.setPlainText("先检查 API Key、Base URL、Model 和网络连通性。")
+        self.ai_card_miss.setPlainText("如果是刚接入 AI，最容易漏的是配置没保存或模型不可用。")
         self.ai_edit.setPlainText(message)
 
     def handle_ai_finished(self) -> None:
@@ -650,6 +695,9 @@ class MainWindow(QMainWindow):
         self.card_checks.clear()
         self.card_next.clear()
         self.result_edit.clear()
+        self.ai_card_problem.clear()
+        self.ai_card_checks.clear()
+        self.ai_card_miss.clear()
         self.ai_edit.clear()
         self.last_feedback_text = ""
         self.last_ai_preview = ""

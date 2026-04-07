@@ -2,6 +2,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+import re
 
 try:
     from core.config_store import DEFAULT_BASE_URL, DEFAULT_MODEL, load_ai_config
@@ -36,7 +37,28 @@ SYSTEM_PROMPT = """你是一个面向蓝桥杯单片机新手的 Keil/C51 报错
 1. 这条错误更像什么问题
 2. 你应该先看哪几处
 3. 如果你刚在改某个模块，最可能漏改哪里
+
+每一段尽量控制在 2 到 4 句内，直接说重点。
 """
+
+
+SECTION_PATTERNS = {
+    "problem": [
+        "1. 这条错误更像什么问题",
+        "一、这条错误更像什么问题",
+        "这条错误更像什么问题",
+    ],
+    "checks": [
+        "2. 你应该先看哪几处",
+        "二、你应该先看哪几处",
+        "你应该先看哪几处",
+    ],
+    "miss": [
+        "3. 如果你刚在改某个模块，最可能漏改哪里",
+        "三、如果你刚在改某个模块，最可能漏改哪里",
+        "如果你刚在改某个模块，最可能漏改哪里",
+    ],
+}
 
 
 def get_runtime_ai_config() -> dict:
@@ -77,6 +99,112 @@ def _extract_output_text(response_data: dict) -> str:
         return merged
 
     raise AIRequestError("AI 已返回结果，但当前版本没有成功解析出文本内容。")
+
+
+def _normalize_heading(text: str) -> str:
+    return re.sub(r"^[\s\-•*\d一二三四五六七八九十、.．()（）]+", "", text.strip())
+
+
+NORMALIZED_SECTION_PATTERNS = {
+    key: [_normalize_heading(pattern) for pattern in patterns]
+    for key, patterns in SECTION_PATTERNS.items()
+}
+
+SECTION_REGEXES = {
+    "problem": re.compile(r"^\s*(1|一)[、.．)\]）]?\s*"),
+    "checks": re.compile(r"^\s*(2|二)[、.．)\]）]?\s*"),
+    "miss": re.compile(r"^\s*(3|三)[、.．)\]）]?\s*"),
+}
+
+
+def _split_ai_sections(raw_text: str) -> dict:
+    sections = {
+        "problem": "",
+        "checks": "",
+        "miss": "",
+    }
+    current_key = ""
+
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        normalized = _normalize_heading(stripped)
+        matched_key = None
+
+        for key, regex in SECTION_REGEXES.items():
+            if regex.match(stripped):
+                matched_key = key
+                break
+
+        if not matched_key:
+            for key, patterns in NORMALIZED_SECTION_PATTERNS.items():
+                for pattern in patterns:
+                    if normalized.startswith(pattern):
+                        matched_key = key
+                        break
+                if matched_key:
+                    break
+
+        if matched_key:
+            current_key = matched_key
+            content_after_title = stripped
+            content_after_title = SECTION_REGEXES.get(matched_key, re.compile(r"$")).sub("", content_after_title, count=1).strip()
+            for pattern in NORMALIZED_SECTION_PATTERNS[matched_key]:
+                if _normalize_heading(content_after_title).startswith(pattern):
+                    content_after_title = ""
+                    break
+            if content_after_title:
+                sections[current_key] = content_after_title
+            continue
+
+        if current_key:
+            if sections[current_key]:
+                sections[current_key] += "\n" + stripped
+            else:
+                sections[current_key] = stripped
+
+    return sections
+
+
+def _format_ai_sections(raw_text: str) -> str:
+    sections = _split_ai_sections(raw_text)
+
+    if not any(sections.values()):
+        cleaned = raw_text.strip()
+        return (
+            "AI 深入分析结果\n\n"
+            "学长版回复整理：\n"
+            f"{cleaned}"
+        )
+
+    def ensure_text(value: str, fallback: str) -> str:
+        return value.strip() or fallback
+
+    problem = ensure_text(sections["problem"], "AI 没有明确展开这一段，建议先按第一条错误附近继续排查。")
+    checks = ensure_text(sections["checks"], "AI 没有明确列出检查点，建议先看报错文件、对应头文件和最近改动处。")
+    miss = ensure_text(sections["miss"], "AI 没有明确指出漏改点，建议先检查声明、定义、调用和页面逻辑是否同步。")
+
+    return (
+        "AI 深入分析结果\n\n"
+        "1. 这条错误更像什么问题\n"
+        f"{problem}\n\n"
+        "2. 你应该先看哪几处\n"
+        f"{checks}\n\n"
+        "3. 如果你刚在改某个模块，最可能漏改哪里\n"
+        f"{miss}"
+    )
+
+
+def build_ai_cards(raw_text: str) -> dict:
+    sections = _split_ai_sections(raw_text)
+
+    return {
+        "problem": sections["problem"].strip() or "AI 暂时没有单独提炼出这一段，建议先看完整结果。",
+        "checks": sections["checks"].strip() or "AI 暂时没有明确列出检查点，建议先看报错文件、头文件和最近改动处。",
+        "miss": sections["miss"].strip() or "AI 暂时没有明确指出漏改点，建议先检查声明、定义、调用和页面逻辑是否同步。",
+    }
 
 
 def _post_json(path: str, body: dict) -> dict:
@@ -149,9 +277,10 @@ def run_ai_analysis(payload_json: str) -> str:
 
     response_data = _post_json("responses", body)
     result = _extract_output_text(response_data)
+    formatted_result = _format_ai_sections(result)
     return (
-        f"AI 深入分析结果\n"
+        f"AI 深入分析\n"
         f"模型：{config['model']}\n"
         "说明：下面是基于规则分析 + 你提供的上下文生成的辅助建议，优先还是先修第一条错误。\n\n"
-        f"{result}"
+        f"{formatted_result}"
     )
