@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
@@ -74,6 +76,14 @@ SAMPLE_ERRORS = {
         "text": "C51 FATAL-ERROR -\n  ACTION:  PARSING INVOKE-/#PRAGMA-LINE\n  LINE:    D:\\Keil_v5\\C51\\BIN\\C51.EXE main.c OPTIMIZE(8,SPEED) BROWSE .\\\n  ERROR:   UNKNOWN CONTROL",
     },
 }
+
+
+def _load_app_version() -> str:
+    version_path = Path(__file__).resolve().parents[2] / "VERSION"
+    try:
+        return version_path.read_text(encoding="utf-8").strip() or "V0.x"
+    except Exception:
+        return "V0.x"
 
 
 class AIAnalysisWorker(QThread):
@@ -159,6 +169,7 @@ class AISettingsDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
+        self.app_version = _load_app_version()
         self.setWindowTitle("Keil 报错诊断器")
         self.resize(1380, 820)
         self.last_feedback_text = ""
@@ -302,6 +313,9 @@ class MainWindow(QMainWindow):
         self.copy_ai_button = QPushButton("复制 AI 内容")
         self.copy_ai_button.clicked.connect(self.handle_copy_ai)
 
+        self.copy_ai_summary_button = QPushButton("复制 AI 摘要")
+        self.copy_ai_summary_button.clicked.connect(self.handle_copy_ai_summary)
+
         self.copy_ai_problem_button = QPushButton("复制问题卡")
         self.copy_ai_problem_button.clicked.connect(
             lambda: self.handle_copy_ai_card(self.ai_card_problem, "问题卡片")
@@ -316,6 +330,9 @@ class MainWindow(QMainWindow):
         self.copy_ai_miss_button.clicked.connect(
             lambda: self.handle_copy_ai_card(self.ai_card_miss, "漏改卡片")
         )
+
+        self.about_button = QPushButton("关于 / 版本")
+        self.about_button.clicked.connect(self.handle_show_about)
 
         self.clear_button = QPushButton("清空")
         self.clear_button.clicked.connect(self.handle_clear)
@@ -373,6 +390,8 @@ class MainWindow(QMainWindow):
         ai_button_row.addWidget(self.ai_settings_button)
         ai_button_row.addWidget(self.ai_test_button)
         ai_button_row.addWidget(self.copy_ai_button)
+        ai_button_row.addWidget(self.copy_ai_summary_button)
+        ai_button_row.addWidget(self.about_button)
 
         ai_card_button_row = QHBoxLayout()
         ai_card_button_row.addWidget(self.copy_ai_problem_button)
@@ -727,6 +746,42 @@ class MainWindow(QMainWindow):
 
         QApplication.clipboard().setText(card_text)
         QMessageBox.information(self, "提示", f"{card_name}已复制。")
+
+    def handle_copy_ai_summary(self) -> None:
+        problem = self.ai_card_problem.toPlainText().strip()
+        checks = self.ai_card_checks.toPlainText().strip()
+        miss = self.ai_card_miss.toPlainText().strip()
+
+        if not any([problem, checks, miss]):
+            QMessageBox.information(self, "提示", "当前没有可复制的 AI 摘要。")
+            return
+
+        summary_text = (
+            "AI 卡片摘要\n\n"
+            "1. 这条错误更像什么问题\n"
+            f"{problem or '暂无内容'}\n\n"
+            "2. 你应该先看哪几处\n"
+            f"{checks or '暂无内容'}\n\n"
+            "3. 如果你刚在改某个模块，最可能漏改哪里\n"
+            f"{miss or '暂无内容'}"
+        )
+
+        QApplication.clipboard().setText(summary_text)
+        QMessageBox.information(self, "提示", "AI 卡片摘要已复制。")
+
+    def handle_show_about(self) -> None:
+        QMessageBox.information(
+            self,
+            "关于 / 版本",
+            (
+                f"Keil 报错诊断器 {self.app_version}\n\n"
+                "定位：面向 Keil / C51 / 蓝桥杯单片机模板工程的新手诊断工具。\n"
+                "核心能力：第一条错误提取、规则诊断、模板定位、求助文本、AI 深入分析。\n\n"
+                "仓库：\n"
+                "https://github.com/C6TNT/keil-error-helper\n\n"
+                "建议：先修第一条错误，再重新编译。"
+            ),
+        )
 
     def handle_clear(self) -> None:
         self.input_edit.clear()
