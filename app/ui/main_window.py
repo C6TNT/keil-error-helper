@@ -302,6 +302,21 @@ class MainWindow(QMainWindow):
         self.copy_ai_button = QPushButton("复制 AI 内容")
         self.copy_ai_button.clicked.connect(self.handle_copy_ai)
 
+        self.copy_ai_problem_button = QPushButton("复制问题卡")
+        self.copy_ai_problem_button.clicked.connect(
+            lambda: self.handle_copy_ai_card(self.ai_card_problem, "问题卡片")
+        )
+
+        self.copy_ai_checks_button = QPushButton("复制检查卡")
+        self.copy_ai_checks_button.clicked.connect(
+            lambda: self.handle_copy_ai_card(self.ai_card_checks, "检查卡片")
+        )
+
+        self.copy_ai_miss_button = QPushButton("复制漏改卡")
+        self.copy_ai_miss_button.clicked.connect(
+            lambda: self.handle_copy_ai_card(self.ai_card_miss, "漏改卡片")
+        )
+
         self.clear_button = QPushButton("清空")
         self.clear_button.clicked.connect(self.handle_clear)
 
@@ -359,6 +374,11 @@ class MainWindow(QMainWindow):
         ai_button_row.addWidget(self.ai_test_button)
         ai_button_row.addWidget(self.copy_ai_button)
 
+        ai_card_button_row = QHBoxLayout()
+        ai_card_button_row.addWidget(self.copy_ai_problem_button)
+        ai_card_button_row.addWidget(self.copy_ai_checks_button)
+        ai_card_button_row.addWidget(self.copy_ai_miss_button)
+
         right_box.addWidget(ai_title)
         right_box.addWidget(self.ai_status_label)
         right_box.addWidget(self._make_card_title("这条错误更像什么问题"))
@@ -367,6 +387,7 @@ class MainWindow(QMainWindow):
         right_box.addWidget(self.ai_card_checks)
         right_box.addWidget(self._make_card_title("如果你刚在改某个模块，最可能漏改哪里"))
         right_box.addWidget(self.ai_card_miss)
+        right_box.addLayout(ai_card_button_row)
         right_box.addWidget(self.ai_edit)
         right_box.addLayout(ai_button_row)
         right_box.addWidget(tip_title)
@@ -697,6 +718,15 @@ class MainWindow(QMainWindow):
 
         QApplication.clipboard().setText(ai_text)
         QMessageBox.information(self, "提示", "AI 内容已复制。")
+
+    def handle_copy_ai_card(self, card_widget: QTextEdit, card_name: str) -> None:
+        card_text = card_widget.toPlainText().strip()
+        if not card_text:
+            QMessageBox.information(self, "提示", f"当前没有可复制的{card_name}。")
+            return
+
+        QApplication.clipboard().setText(card_text)
+        QMessageBox.information(self, "提示", f"{card_name}已复制。")
 
     def handle_clear(self) -> None:
         self.input_edit.clear()
