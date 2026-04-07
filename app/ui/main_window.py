@@ -180,6 +180,15 @@ class MainWindow(QMainWindow):
             "把 Keil 编译输出完整粘贴到这里。\n\n"
             "建议直接复制 Build Output 全部内容，不要只截一小段。"
         )
+        self.input_edit.setMinimumHeight(260)
+
+        self.code_edit = QTextEdit()
+        self.code_edit.setPlaceholderText(
+            "补充代码片段（可选）\n\n"
+            "如果你愿意，可以把报错附近的函数、变量定义或调用位置一起贴进来。\n"
+            "这样 AI 深入分析会更准确。"
+        )
+        self.code_edit.setMaximumHeight(160)
 
         self.scene_combo = QComboBox()
         self.scene_combo.addItem("未选择", "none")
@@ -280,6 +289,8 @@ class MainWindow(QMainWindow):
         scene_title.setObjectName("fieldTitle")
         sample_title = QLabel("示例报错")
         sample_title.setObjectName("fieldTitle")
+        code_title = QLabel("补充代码片段（可选）")
+        code_title.setObjectName("fieldTitle")
         result_title = QLabel("诊断结果")
         result_title.setObjectName("sectionTitle")
         ai_title = QLabel("AI 深入分析")
@@ -294,6 +305,8 @@ class MainWindow(QMainWindow):
         left_box.addWidget(self.sample_combo)
         left_box.addWidget(self.load_sample_button)
         left_box.addWidget(self.input_edit)
+        left_box.addWidget(code_title)
+        left_box.addWidget(self.code_edit)
         left_box.addWidget(self.analyze_button)
 
         center_box.addWidget(self.priority_label)
@@ -470,7 +483,8 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
         try:
-            result = analyze_text(text, self.scene_combo.currentData())
+            code_snippet = self.code_edit.toPlainText().strip()
+            result = analyze_text(text, self.scene_combo.currentData(), code_snippet)
             self.priority_label.setText(result.get("priority_level", "先修第一条错误"))
             self.priority_text.setPlainText(result.get("priority_text", ""))
             self.card_error.setPlainText(result.get("card_error", ""))
@@ -485,11 +499,13 @@ class MainWindow(QMainWindow):
             if ai_is_configured():
                 self.ai_edit.setPlainText(
                     "当前已经整理好 AI 输入。\n"
+                    "如果你补充了报错附近代码，AI 会一起参考。\n"
                     "如果你想拿到更深入的解释和排查建议，可以点下面的“AI 深入分析”。"
                 )
             else:
                 self.ai_edit.setPlainText(
                     "当前已经整理好 AI 输入，但你还没有在应用里配置 API Key。\n"
+                    "如果你补充了报错附近代码，后面 AI 预览里也会一起带上。\n"
                     "现在点“AI 深入分析”会先展示结构化预览，建议先去“AI 设置”里补配置。"
                 )
         except Exception as exc:
@@ -525,6 +541,7 @@ class MainWindow(QMainWindow):
             return
 
         self.input_edit.setPlainText(str(sample["text"]))
+        self.code_edit.clear()
         scene_value = str(sample["scene"])
         index = self.scene_combo.findData(scene_value)
         if index >= 0:
@@ -625,6 +642,7 @@ class MainWindow(QMainWindow):
 
     def handle_clear(self) -> None:
         self.input_edit.clear()
+        self.code_edit.clear()
         self.priority_label.setText("先修第一条错误")
         self.priority_text.clear()
         self.card_error.clear()

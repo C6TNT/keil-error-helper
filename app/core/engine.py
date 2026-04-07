@@ -155,6 +155,7 @@ def _build_feedback_text(
     rule: Optional[Dict],
     template_hint: Optional[Dict],
     pitfall_hint: Optional[Dict],
+    code_snippet: str,
 ) -> str:
     if not error:
         return (
@@ -231,6 +232,15 @@ def _build_feedback_text(
             "（这里自己补一句，比如：我刚把某一届示例代码替换进了 App/app.c）",
         ]
     )
+
+    if code_snippet.strip():
+        lines.extend(
+            [
+                "",
+                "我补充的报错附近代码：",
+                code_snippet.strip(),
+            ]
+        )
 
     return "\n".join(lines)
 
@@ -380,6 +390,7 @@ def _build_priority_hint(
 
 def _build_ai_payload(
     raw_text: str,
+    code_snippet: str,
     error: Optional[Dict[str, str]],
     rule: Optional[Dict],
     template_hint: Optional[Dict],
@@ -420,6 +431,8 @@ def _build_ai_payload(
             "tips": [] if not pitfall_hint else list(pitfall_hint.get("tips", [])),
         },
         "cards": cards,
+        "code_context_present": bool(code_snippet.strip()),
+        "code_context": code_snippet.strip(),
         "raw_build_output": raw_text,
     }
 
@@ -433,7 +446,7 @@ def _build_ai_preview(payload: Dict[str, object]) -> str:
     return intro + payload_json
 
 
-def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
+def analyze_text(text: str, scene: str = "none", code_snippet: str = "") -> Dict[str, str]:
     rules = load_rules()
     error = extract_first_error(text)
     rule = classify_error(error, rules) if error else None
@@ -441,11 +454,12 @@ def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
     pitfall_hint = _detect_template_pitfall(error, rule, template_hint)
     scene_hint = _apply_scene_hint(scene, rule, template_hint)
     report = format_result(error, rule, template_hint, pitfall_hint)
-    feedback_text = _build_feedback_text(error, rule, template_hint, pitfall_hint)
+    feedback_text = _build_feedback_text(error, rule, template_hint, pitfall_hint, code_snippet)
     cards = _build_cards(error, rule, template_hint, scene_hint)
     priority_hint = _build_priority_hint(error, rule, pitfall_hint)
     ai_payload = _build_ai_payload(
         text,
+        code_snippet,
         error,
         rule,
         template_hint,
@@ -463,6 +477,9 @@ def analyze_text(text: str, scene: str = "none") -> Dict[str, str]:
         for item in scene_hint.get("tips", []):
             scene_lines.append(f"- {item}")
         report = report + "\n" + "\n".join(scene_lines)
+
+    if code_snippet.strip():
+        report = report + "\n\n补充代码片段：\n" + code_snippet.strip()
 
     return {
         "error_found": "yes" if error else "no",

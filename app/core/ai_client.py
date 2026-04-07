@@ -29,6 +29,8 @@ SYSTEM_PROMPT = """你是一个面向蓝桥杯单片机新手的 Keil/C51 报错
 3. 明确告诉用户先看哪一段、先做哪一步。
 4. 输出尽量简洁，不要泛泛而谈，不要长篇背景解释。
 5. 如果信息不够，不要编造，明确指出还缺什么。
+6. 如果输入里附带了报错附近代码，优先结合代码片段来判断，而不是只泛泛解释错误码。
+7. 不要编造不存在的函数、变量或行号。
 
 请固定按下面 3 段输出：
 1. 这条错误更像什么问题
@@ -147,4 +149,9 @@ def run_ai_analysis(payload_json: str) -> str:
 
     response_data = _post_json("responses", body)
     result = _extract_output_text(response_data)
-    return f"AI 深入分析结果\n模型：{config['model']}\n\n{result}"
+    return (
+        f"AI 深入分析结果\n"
+        f"模型：{config['model']}\n"
+        "说明：下面是基于规则分析 + 你提供的上下文生成的辅助建议，优先还是先修第一条错误。\n\n"
+        f"{result}"
+    )
