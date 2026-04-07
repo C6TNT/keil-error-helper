@@ -1,6 +1,7 @@
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -161,6 +162,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Keil 报错诊断器")
         self.resize(1380, 820)
         self.last_feedback_text = ""
+        self.last_feedback_text_base = ""
+        self.last_feedback_text_with_code = ""
         self.last_ai_preview = ""
         self.last_ai_payload_json = ""
         self.ai_worker = None
@@ -284,6 +287,8 @@ class MainWindow(QMainWindow):
 
         self.copy_feedback_button = QPushButton("复制求助文本")
         self.copy_feedback_button.clicked.connect(self.handle_copy_feedback)
+        self.include_code_checkbox = QCheckBox("附带代码片段")
+        self.include_code_checkbox.setChecked(True)
 
         self.ai_button = QPushButton("AI 深入分析")
         self.ai_button.clicked.connect(self.handle_ai_analysis)
@@ -345,6 +350,7 @@ class MainWindow(QMainWindow):
         center_box.addLayout(cards_layout)
         center_box.addWidget(self.result_edit)
         center_box.addWidget(self.copy_button)
+        center_box.addWidget(self.include_code_checkbox)
         center_box.addWidget(self.copy_feedback_button)
 
         ai_button_row = QHBoxLayout()
@@ -527,6 +533,8 @@ class MainWindow(QMainWindow):
             self.card_next.setPlainText(result.get("card_next", ""))
             self.result_edit.setPlainText(result.get("report", ""))
             self.last_feedback_text = result.get("feedback_text", "")
+            self.last_feedback_text_base = result.get("feedback_text_base", "")
+            self.last_feedback_text_with_code = result.get("feedback_text_with_code", "")
             self.last_ai_preview = result.get("ai_preview", "")
             self.last_ai_payload_json = result.get("ai_payload_json", "")
 
@@ -555,6 +563,8 @@ class MainWindow(QMainWindow):
             self.card_next.setPlainText("复制异常信息，反馈给维护者继续修复。")
             self.result_edit.setPlainText(error_message)
             self.last_feedback_text = error_message
+            self.last_feedback_text_base = error_message
+            self.last_feedback_text_with_code = error_message
             self.last_ai_preview = ""
             self.last_ai_payload_json = ""
             self.ai_edit.setPlainText("分析阶段出现异常，已停止 AI 深入分析。")
@@ -673,7 +683,10 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "请先完成一次分析，再复制求助文本。")
             return
 
-        QApplication.clipboard().setText(self.last_feedback_text)
+        feedback_text = self.last_feedback_text_with_code
+        if not self.include_code_checkbox.isChecked():
+            feedback_text = self.last_feedback_text_base or self.last_feedback_text
+        QApplication.clipboard().setText(feedback_text)
         QMessageBox.information(self, "提示", "求助文本已复制，可以直接发给学长或群里。")
 
     def handle_copy_ai(self) -> None:
@@ -700,6 +713,8 @@ class MainWindow(QMainWindow):
         self.ai_card_miss.clear()
         self.ai_edit.clear()
         self.last_feedback_text = ""
+        self.last_feedback_text_base = ""
+        self.last_feedback_text_with_code = ""
         self.last_ai_preview = ""
         self.last_ai_payload_json = ""
         self.refresh_ai_status()

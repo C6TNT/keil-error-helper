@@ -245,6 +245,13 @@ def _build_feedback_text(
     return "\n".join(lines)
 
 
+def _strip_code_from_feedback_text(feedback_text: str) -> str:
+    marker = "\n\n我补充的报错附近代码：\n"
+    if marker in feedback_text:
+        return feedback_text.split(marker, 1)[0].rstrip()
+    return feedback_text
+
+
 def _apply_scene_hint(
     scene: str,
     rule: Optional[Dict],
@@ -455,6 +462,7 @@ def analyze_text(text: str, scene: str = "none", code_snippet: str = "") -> Dict
     scene_hint = _apply_scene_hint(scene, rule, template_hint)
     report = format_result(error, rule, template_hint, pitfall_hint)
     feedback_text = _build_feedback_text(error, rule, template_hint, pitfall_hint, code_snippet)
+    feedback_text_base = _strip_code_from_feedback_text(feedback_text)
     cards = _build_cards(error, rule, template_hint, scene_hint)
     priority_hint = _build_priority_hint(error, rule, pitfall_hint)
     ai_payload = _build_ai_payload(
@@ -485,6 +493,8 @@ def analyze_text(text: str, scene: str = "none", code_snippet: str = "") -> Dict
         "error_found": "yes" if error else "no",
         "report": report,
         "feedback_text": feedback_text,
+        "feedback_text_base": feedback_text_base,
+        "feedback_text_with_code": feedback_text,
         "ai_preview": ai_preview,
         "ai_payload_json": ai_payload_json,
         "card_error": cards["card_error"],
